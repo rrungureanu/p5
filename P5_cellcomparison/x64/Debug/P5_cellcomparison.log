@@ -1,0 +1,5 @@
+﻿  Source.cpp
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(298): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(133): warning C4715: 'well::evalWellColi': not all control paths return a value
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(155): warning C4715: 'well::evalWellEColi': not all control paths return a value
+  P5_cellcomparison.vcxproj -> C:\Users\rrung\source\repos\P5_cellcomparison\x64\Debug\P5_cellcomparison.exe
