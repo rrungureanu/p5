@@ -4,17 +4,52 @@
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
 #include <iostream>
+#include <fstream>
+#include <queue>
 #include <vector>
 #include <chrono>
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <string.h>
+#include "SerialPort.h"
 
 using namespace std;
 using namespace cv;
 #pragma comment (lib, "Ws2_32.lib")
+#define WELLSNR 96
 #define DEFAULT_BUFLEN 512
-#define DEFAULT_PORT "30002" 
+#define DEFAULT_PORT "2000" 
+
+
+#define	pos_CALIBRATION 0
+#define	pos_STANDBY 1
+#define	pos_VIS_APP 2 
+#define	pos_VIS_IN 3
+#define	pos_RACK_LOW_APP 4
+#define	pos_RACK_LOW_IN 5
+#define	pos_RACK_HIGH_IN 6
+#define	pos_RACK_HIGH_APP 7 
+#define	pos_IO_LOW_APP 8 
+#define	pos_IO_LOW_IN 9 
+#define	pos_IO_HIGH_APP 10 
+#define	pos_IO_HIGH_IN 11
+
+#define	task_INPUT 0
+#define	task_EVALUATE 1 
+#define	task_OUTPUT 2
+
+
+class sample;
+//Structure that holds the data for each task that is to be performed
+struct task {
+	int action;
+	sample *sampleTarget;
+};
+
+#define ADJ_RACK_X 0.220
+#define ADJ_RACK_Z 0.070
+#define ADJ_IO_Z 0.016
 
 //Global TCP variables
 WSADATA wsaData;
@@ -30,14 +65,32 @@ int iSendResult;
 char recvbuf[DEFAULT_BUFLEN];
 int recvbuflen = DEFAULT_BUFLEN;
 
+//Global Serial Port
+const char *port = "\\\\.\\COM5";
+SerialPort arduinoSP(port);
+
 //Global coordinates
-Point wellCoordinates[46][2];
+Point wellCoordinates[WELLSNR][2];
+float positionCoordinates[12][6];
+queue<task> taskQueue;
+
+//Global variables
+int ioCapacity;
+Mat currFrame;
+VideoCapture cap;
+
+//Structure the holds the data for each evaluation on a sample
+struct evaluation{
+	int time;
+	bool wellResults[2][WELLSNR];
+	string picFilenameWhite, picFilenameUV;
+};
 
 //Class that holds the data for each individual well along with methods for assessing and comparing wells
 class well
 {
 private:
-	int position, intensity[3][9]; //Position on the sample, also used to identify if well is small or large
+	int position, intensity[4][9]; //Position on the sample, also used to identify if well is small or large
 	Point topLeft, bottomRight; //Coordinates of the well in the image
 public:
 	well() {}
@@ -51,75 +104,106 @@ public:
 //Method that records the intensity values of a well for the 3 different channels in multiple points for a coli image
 void well::readWellColi(Mat image)
 {
-	if (position < 48) //If the well is a large well
-	{
+	int xDiff = bottomRight.x - topLeft.x;
+	int yDiff = bottomRight.y - topLeft.y;
 		//Point 1
+		//rectangle(image, topLeft, topLeft, Scalar(255, 0, 0), 2);
 		intensity[0][0] = image.at<Vec3b>(topLeft)[0];
 		intensity[1][0] = image.at<Vec3b>(topLeft)[1];
 		intensity[2][0] = image.at<Vec3b>(topLeft)[2];
 		//Point 2
-		intensity[0][1] = image.at<Vec3b>(topLeft.x + 11, topLeft.y)[0];
-		intensity[1][1] = image.at<Vec3b>(topLeft.x + 11, topLeft.y)[1];
-		intensity[2][1] = image.at<Vec3b>(topLeft.x + 11, topLeft.y)[2];
+		//rectangle(image, Point( topLeft.x, topLeft.y + yDiff / 2 ), Point(topLeft.x, topLeft.y + yDiff / 2), Scalar(255, 0, 0), 2);
+		intensity[0][1] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x)[0];
+		intensity[1][1] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x)[1];
+		intensity[2][1] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x)[2];
 		//Point 3
-		intensity[0][2] = image.at<Vec3b>(topLeft.x + 22, topLeft.y)[0];
-		intensity[1][2] = image.at<Vec3b>(topLeft.x + 22, topLeft.y)[1];
-		intensity[2][2] = image.at<Vec3b>(topLeft.x + 22, topLeft.y)[2];
+		//rectangle(image, Point(topLeft.x, topLeft.y + yDiff), Point(topLeft.x, topLeft.y + yDiff), Scalar(255, 0, 0), 2);
+		intensity[0][2] = image.at<Vec3b>(topLeft.y + yDiff, topLeft.x)[0];
+		intensity[1][2] = image.at<Vec3b>(topLeft.y + yDiff, topLeft.x)[1];
+		intensity[2][2] = image.at<Vec3b>(topLeft.y + yDiff, topLeft.x)[2];
 		//Point 4
-		intensity[0][3] = image.at<Vec3b>(topLeft.x, topLeft.y + 11)[0];
-		intensity[1][3] = image.at<Vec3b>(topLeft.x, topLeft.y + 11)[1];
-		intensity[2][3] = image.at<Vec3b>(topLeft.x, topLeft.y + 11)[2];
+		//rectangle(image, Point(topLeft.x + xDiff / 2, topLeft.y), Point(topLeft.x + xDiff / 2, topLeft.y), Scalar(255, 0, 0), 2);
+		intensity[0][3] = image.at<Vec3b>(topLeft.y, topLeft.x + xDiff / 2)[0];
+		intensity[1][3] = image.at<Vec3b>(topLeft.y, topLeft.x + xDiff / 2)[1];
+		intensity[2][3] = image.at<Vec3b>(topLeft.y, topLeft.x + xDiff / 2)[2];
 		//Point 5
-		intensity[0][4] = image.at<Vec3b>(topLeft.x + 11, topLeft.y + 11)[0];
-		intensity[1][4] = image.at<Vec3b>(topLeft.x + 11, topLeft.y + 11)[1];
-		intensity[2][4] = image.at<Vec3b>(topLeft.x + 11, topLeft.y + 11)[2];
+		//rectangle(image, Point(topLeft.x + xDiff / 2,topLeft.y + yDiff / 2), Point(topLeft.x + xDiff / 2, topLeft.y + yDiff / 2), Scalar(255, 0, 0), 2);
+		intensity[0][4] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x + xDiff / 2)[0];
+		intensity[1][4] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x + xDiff / 2)[1];
+		intensity[2][4] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x + xDiff / 2)[2];
 		//Point 6
-		intensity[0][5] = image.at<Vec3b>(topLeft.x + 22, topLeft.y + 11)[0];
-		intensity[1][5] = image.at<Vec3b>(topLeft.x + 22, topLeft.y + 11)[1];
-		intensity[2][5] = image.at<Vec3b>(topLeft.x + 22, topLeft.y + 11)[2];
+		//rectangle(image, Point(topLeft.x + xDiff / 2,topLeft.y + yDiff), Point(topLeft.x + xDiff / 2, topLeft.y + yDiff), Scalar(255, 0, 0), 2);
+		intensity[0][5] = image.at<Vec3b>(topLeft.y + yDiff, topLeft.x + xDiff / 2)[0];
+		intensity[1][5] = image.at<Vec3b>(topLeft.y + yDiff, topLeft.x + xDiff / 2)[1];
+		intensity[2][5] = image.at<Vec3b>(topLeft.y + yDiff, topLeft.x + xDiff / 2)[2];
 		//Point 7
-		intensity[0][6] = image.at<Vec3b>(topLeft.x, topLeft.y + 22)[0];
-		intensity[1][6] = image.at<Vec3b>(topLeft.x, topLeft.y + 22)[1];
-		intensity[2][6] = image.at<Vec3b>(topLeft.x, topLeft.y + 22)[2];
+		//rectangle(image, Point(topLeft.x + xDiff, topLeft.y), Point(topLeft.x + xDiff, topLeft.y), Scalar(255, 0, 0), 2);
+		intensity[0][6] = image.at<Vec3b>(topLeft.y, topLeft.x + xDiff)[0];
+		intensity[1][6] = image.at<Vec3b>(topLeft.y, topLeft.x + xDiff)[1];
+		intensity[2][6] = image.at<Vec3b>(topLeft.y, topLeft.x + xDiff)[2];
 		//Point 8
-		intensity[0][7] = image.at<Vec3b>(topLeft.x + 11, topLeft.y + 22)[0];
-		intensity[1][7] = image.at<Vec3b>(topLeft.x + 11, topLeft.y + 22)[1];
-		intensity[2][7] = image.at<Vec3b>(topLeft.x + 11, topLeft.y + 22)[2];
+		//rectangle(image, Point(topLeft.x + xDiff, topLeft.y + yDiff / 2), Point(topLeft.x + xDiff, topLeft.y + yDiff / 2), Scalar(255, 0, 0), 2);
+		intensity[0][7] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x + xDiff)[0];
+		intensity[1][7] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x + xDiff)[1];
+		intensity[2][7] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x + xDiff)[2];
 		//Point 9
+		//rectangle(image, bottomRight, bottomRight, Scalar(255, 0, 0), 2);
 		intensity[0][8] = image.at<Vec3b>(bottomRight)[0];
 		intensity[1][8] = image.at<Vec3b>(bottomRight)[1];
 		intensity[2][8] = image.at<Vec3b>(bottomRight)[2];
-	} 
-	else //If the well is a small well
-	{
-
-	}
 }
 
 //Method that records the intensity values of a well for the 3 different channels in multiple points for a Ecoli image
 void well::readWellEColi(Mat image)
 {
-	if (position < 48) //If the well is a large well
-	{
-		
-	}
-	else //If the well is a small well
-	{
-
-	}
+	int xDiff = bottomRight.x - topLeft.x;
+	int yDiff = bottomRight.y - topLeft.y;
+	//Point 1
+	//rectangle(image, topLeft, topLeft, Scalar(255, 0, 0), 2);
+	intensity[3][0] = image.at<Vec3b>(topLeft)[0];
+	//Point 2
+	//rectangle(image, Point( topLeft.x, topLeft.y + yDiff / 2 ), Point(topLeft.x, topLeft.y + yDiff / 2), Scalar(255, 0, 0), 2);
+	intensity[3][1] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x)[0];
+	//Point 3
+	//rectangle(image, Point(topLeft.x, topLeft.y + yDiff), Point(topLeft.x, topLeft.y + yDiff), Scalar(255, 0, 0), 2);
+	intensity[3][2] = image.at<Vec3b>(topLeft.y + yDiff, topLeft.x)[0];
+	//Point 4
+	//rectangle(image, Point(topLeft.x + xDiff / 2, topLeft.y), Point(topLeft.x + xDiff / 2, topLeft.y), Scalar(255, 0, 0), 2);
+	intensity[3][3] = image.at<Vec3b>(topLeft.y, topLeft.x + xDiff / 2)[0];
+	//Point 5
+	//rectangle(image, Point(topLeft.x + xDiff / 2,topLeft.y + yDiff / 2), Point(topLeft.x + xDiff / 2, topLeft.y + yDiff / 2), Scalar(255, 0, 0), 2);
+	intensity[3][4] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x + xDiff / 2)[0];
+	//Point 6
+	//rectangle(image, Point(topLeft.x + xDiff / 2,topLeft.y + yDiff), Point(topLeft.x + xDiff / 2, topLeft.y + yDiff), Scalar(255, 0, 0), 2);
+	intensity[3][5] = image.at<Vec3b>(topLeft.y + yDiff, topLeft.x + xDiff / 2)[0];
+	//Point 7
+	//rectangle(image, Point(topLeft.x + xDiff, topLeft.y), Point(topLeft.x + xDiff, topLeft.y), Scalar(255, 0, 0), 2);
+	intensity[3][6] = image.at<Vec3b>(topLeft.y, topLeft.x + xDiff)[0];
+	//Point 8
+	//rectangle(image, Point(topLeft.x + xDiff, topLeft.y + yDiff / 2), Point(topLeft.x + xDiff, topLeft.y + yDiff / 2), Scalar(255, 0, 0), 2);
+	intensity[3][7] = image.at<Vec3b>(topLeft.y + yDiff / 2, topLeft.x + xDiff)[0];
+	//Point 9
+	//rectangle(image, bottomRight, bottomRight, Scalar(255, 0, 0), 2);
+	intensity[3][8] = image.at<Vec3b>(bottomRight)[0];
 }
 
 //Method that compares the intensity values of the first well using the blue channel values of the second well as a threshold
 //returns 1 if the well contains coli, -1 otherwise
 int well::evalWellColi(well comparator)
 {
+
 	int coliPositives = 0;
 	if (position < 48)
 	{
 		for (int i = 0; i < 9; i++)
-			if (intensity[0][i] < comparator.intensity[0][i])
+		{
+			//cout << intensity[0][i] << " vs comp: " << comparator.intensity[0][i] << endl;
+			if (intensity[0][i] <= comparator.intensity[0][i])
+			{
 				coliPositives++;
-		if (coliPositives >= 5)
+			}
+		}
+		if (coliPositives >= 7)
 		{
 			return 1;
 		}
@@ -128,7 +212,15 @@ int well::evalWellColi(well comparator)
 	}
 	else
 	{
-
+		for (int i = 0; i < 9; i++)
+			if (intensity[0][i] <= comparator.intensity[0][i])
+				coliPositives++;
+		if (coliPositives >= 7)
+		{
+			return 1;
+		}
+		else
+			return -1;
 	}
 }
 
@@ -139,10 +231,14 @@ int well::evalWellEColi(well comparator)
 	if (position < 48)
 	{
 		for (int i = 0; i < 9; i++)
-			
-		if (EcoliPositives >= 5)
 		{
-
+			if (intensity[3][i] >= 210)
+			{
+				EcoliPositives++;
+			}
+		}
+		if (EcoliPositives >= 8)
+		{
 			return 1;
 		}
 		else
@@ -150,7 +246,15 @@ int well::evalWellEColi(well comparator)
 	}
 	else
 	{
-
+		for (int i = 0; i < 9; i++)
+			if (intensity[3][i] >= 210)
+				EcoliPositives++;
+		if (EcoliPositives >= 8)
+		{
+			return 1;
+		}
+		else
+			return -1;
 	}
 }
 
@@ -158,25 +262,40 @@ int well::evalWellEColi(well comparator)
 class sample
 {
 private:
-	well wells[96]; //Vector containing all 96 well objects which the sample contains
-	int rackPos, idCode; //Position of the sample on the storage rack
+	well wells[WELLSNR]; //Vector containing all 96 well objects which the sample contains
+	int qrCode; //Position of the sample on the storage rack
+	Point rackPos; //Position of the sample on the storage rack
 	vector<int> evalTimes; //Vector containing the times at which the sample is to be evaluated relative to the time it first entered the system
+	vector<evaluation> evalInstances; //Vector containing the results of each individual evaluation
 public:
+	chrono::high_resolution_clock::time_point inputTime;
 	sample(){}
-	sample(int position, int id, vector<int> times);
+	sample(Point rackPos, int code, vector<int> &times);
 	well returnWell(int i) { return wells[i];}
+	Point returnRackPos() { return rackPos; }
+	int returnQrCode() { return qrCode; }
 	void readSample(Mat imageWhite, Mat imageUV);
-	void evalSample(sample comparator);
+	void evalSample(sample comparator, Mat imageWhite, Mat imageUV);
 	int computeMPN();
 };
+vector<sample> sampleVector;
+sample comparator;
 
 //Constructor for the sample class
-sample::sample(int position, int id, vector<int> times)
+sample::sample(Point position, int code, vector<int> &times)
 {
-	rackPos = position; idCode = id; evalTimes = times;
-	for (int i = 0; i < 96; i++)
+	Point tl, br;
+	rackPos = position; qrCode = code; evalTimes = times;
+	for (int i = 0; i < WELLSNR; i++)
 	{
-		Point tl = wellCoordinates[i][0]; Point br = wellCoordinates[i][1];
+		if (i < 46)
+		{
+			tl= Point(wellCoordinates[i][0].x + 5, wellCoordinates[i][0].y + 5); br = Point(wellCoordinates[i][1].x - 5, wellCoordinates[i][1].y - 5);
+		}
+		else
+		{
+			tl = Point(wellCoordinates[i][0].x + 5, wellCoordinates[i][0].y + 5); br = Point(wellCoordinates[i][1].x - 5, wellCoordinates[i][1].y - 5);
+		}
 		wells[i] = well(i, tl, br);
 	}
 }
@@ -184,35 +303,115 @@ sample::sample(int position, int id, vector<int> times)
 //Method that reads the values for each individual well object from an image with white light and an image with UV light
 void sample::readSample(Mat imageWhite, Mat imageUV)
 {
-	for (int i = 0; i < 49; i++)
+	for (int i = 0; i < WELLSNR; i++)
 	{
 		wells[i].readWellColi(imageWhite);
 		wells[i].readWellEColi(imageUV);
 	}
 }
 
-//Method that evaluates a sample against the values of another sample (DOES NOT DO ANYTHING AFTER EVALUATING ATM!!!)
-void sample::evalSample(sample comparator)
+//Method that evaluates a sample against the values of another sample
+void sample::evalSample(sample comparator, Mat imageWhite, Mat imageUV)
 {
-	int coliCounter = 0;
-	int eColiCounter = 0;
-	for (int i = 0; i < 49; i++)
+	this->readSample(imageWhite, imageUV);
+	evaluation currEval;
+	auto current_time = chrono::high_resolution_clock::now();
+	currEval.time = chrono::duration_cast<chrono::minutes>(current_time - comparator.inputTime).count();
+	for (int i = 0; i < WELLSNR; i++)
 	{
 		well comparatorWell = comparator.returnWell(i);
 		if (wells[i].evalWellColi(comparatorWell) == 1)
-			coliCounter++;
+			currEval.wellResults[0][i] = true;
 		if (wells[i].evalWellEColi(comparatorWell) == 1)
-			eColiCounter++;
+			currEval.wellResults[1][i] = true;	
 	}
+	for (int i = 0; i < WELLSNR; i++)
+	{
+		if(currEval.wellResults[0][i]==1)
+			rectangle(imageWhite, Point(wellCoordinates[i][0].x - 5, wellCoordinates[i][0].y - 5), Point(wellCoordinates[i][1].x + 5, wellCoordinates[i][1].y + 5), Scalar(0, 0, 255),2);
+		else
+			rectangle(imageWhite, Point(wellCoordinates[i][0].x - 5, wellCoordinates[i][0].y - 5), Point(wellCoordinates[i][1].x + 5, wellCoordinates[i][1].y + 5), Scalar(0, 255, 0),2);
+		if (currEval.wellResults[1][i]==1)
+			rectangle(imageUV, Point(wellCoordinates[i][0].x - 5, wellCoordinates[i][0].y - 5), Point(wellCoordinates[i][1].x + 5, wellCoordinates[i][1].y + 5), Scalar(0, 0, 255),2);
+		else
+			rectangle(imageUV, Point(wellCoordinates[i][0].x - 5, wellCoordinates[i][0].y - 5), Point(wellCoordinates[i][1].x + 5, wellCoordinates[i][1].y + 5), Scalar(0, 255, 0),2);
+	}
+	currEval.picFilenameWhite = to_string(comparator.returnQrCode()) + "_" + to_string(currEval.time) + "min_White.jpg";
+	currEval.picFilenameWhite = to_string(comparator.returnQrCode()) + "_" + to_string(currEval.time) + "min_UV.jpg";
+	imshow(currEval.picFilenameWhite, imageWhite);
+	imshow(currEval.picFilenameUV, imageUV);
+	waitKey(0);
+	//imwrite(currEval.picFilenameWhite, imageWhite);
+	//imwrite(currEval.picFilenameUV, imageUV);
+	evalInstances.push_back(currEval);
 }
 
 //Method that computes and returns the most probable number
-int computeMPN()
+int sample::computeMPN()
 {
 	return 0;
 }
 
-void initializeTCP()
+//Function that initializes the well coordinates and stores it in a global array
+void initGlobalPosCoord()
+{
+	float x, y, z, rx, ry, rz;
+	ifstream GPCfile;
+	GPCfile.open("GPCfile.txt");
+	if (GPCfile.is_open())
+	{
+		for (int i = 0; i < 12; i++)
+		{
+			GPCfile >> positionCoordinates[i][0];
+			GPCfile >> positionCoordinates[i][1];
+			GPCfile >> positionCoordinates[i][2];
+			GPCfile >> positionCoordinates[i][3];
+			GPCfile >> positionCoordinates[i][4];
+			GPCfile >> positionCoordinates[i][5];
+		}
+	}
+	GPCfile.close();
+}
+
+//Function that initializes the position coordinates and stores them in a global array
+void initGlobalWellCoord()
+{
+	int y_TL, x_TL, y_BR, x_BR;
+	ifstream GWCfile;
+	GWCfile.open("GWCfile.txt");
+	if (GWCfile.is_open())
+	{
+		for (int i = 0; i < WELLSNR; i++)
+		{
+			GWCfile >> y_TL;
+			GWCfile >> x_TL;
+			GWCfile >> y_BR;
+			GWCfile >> x_BR;
+			Point TL(y_TL, x_TL);
+			Point BR(y_BR, x_BR);
+			wellCoordinates[i][0] = TL;
+			wellCoordinates[i][1] = BR;
+		}
+	}
+	GWCfile.close();
+}
+
+//Function that initializes and returns a sample object based on the comparator image
+void initComparator()
+{
+	Mat comparatorImgWhite = imread("comparatorPicWhite.jpg");
+	GaussianBlur(comparatorImgWhite, comparatorImgWhite, Size(7, 7), 0, 0);
+	Mat comparatorImgUV = imread("comparatorPicUV.jpg");
+	GaussianBlur(comparatorImgUV, comparatorImgUV, Size(7, 7), 0, 0);
+	vector<int> times;
+	sample comparatorLocal(Point(-1,-1),-1,times);
+	comparatorLocal.readSample(comparatorImgWhite, comparatorImgUV);
+	comparator = comparatorLocal;
+	return;
+}
+
+//Function that initializes the TCP connection with the UR5 robot
+void initTCP()
 {
 	// Initialize Winsock
 	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -227,7 +426,6 @@ void initializeTCP()
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_PASSIVE;
 
-	cout << "test1";
 	// Resolve the server address and port
 	iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
 	if (iResult != 0) {
@@ -236,7 +434,6 @@ void initializeTCP()
 		return;
 	}
 
-	cout << "test2";
 	// Create a SOCKET for connecting to server
 	ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
 	if (ListenSocket == INVALID_SOCKET) {
@@ -266,10 +463,10 @@ void initializeTCP()
 		return;
 	}
 
-	cout << "test3";
+	cout << "Waiting to connect...  ";
 	// Accept a client socket
 	ClientSocket = ::accept(ListenSocket, NULL, NULL);
-	cout << "test4";
+	cout << "Connection successful!";
 	if (ClientSocket == INVALID_SOCKET) {
 		printf("accept failed with error: %d\n", WSAGetLastError());
 		closesocket(ListenSocket);
@@ -282,39 +479,39 @@ void initializeTCP()
 	closesocket(ListenSocket);
 }
 
-void listenSendTCP()
+//Function that initializes the camera, store video capture object in global variable
+void initCamera()
 {
-	while (1)
+	cap.open(0, CV_CAP_DSHOW);
+	cap.set(CV_CAP_PROP_FOURCC, CV_FOURCC('M', 'J', 'P', 'G'));
+	cap.set(CV_CAP_PROP_FRAME_WIDTH, 1920);
+	cap.set(CV_CAP_PROP_FRAME_HEIGHT, 1080);
+}
+
+//Function that sends coordinates to the robot and evaluates the robot's response
+int sendCoordinatesTCP(float x, float y, float z, float rx, float ry, float rz)
+{
+	string URmessage = "(" + to_string(x) + ", " + to_string(y) + ", " + to_string(z) + ", " + to_string(rx) + ", " + to_string(ry) + ", " + to_string(rz) + ")";
+	iSendResult = send(ClientSocket, URmessage.c_str(), URmessage.length(), 0); //Send the message
+	if (iSendResult == SOCKET_ERROR) {
+		printf("send failed with error: %d\n", WSAGetLastError());
+		closesocket(ClientSocket);
+		WSACleanup();
+		return -1;
+	}
+	else
 	{
 		iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-		cout <<endl <<recvbuf<<endl;
-
-
-		if (iResult > 0) {
-			printf("Bytes received: %d\n", iResult);
-
-			string URmessage = "(" + to_string(6) + ", " + to_string(5) + ", " + to_string(4) + ", " + to_string(3) + ", " + to_string(2) + ", " + to_string(1) + ")";
-			cout << URmessage << endl;
-			iSendResult = send(ClientSocket, URmessage.c_str(), URmessage.length(), 0);
-			if (iSendResult == SOCKET_ERROR) {
-				printf("send failed with error: %d\n", WSAGetLastError());
-				closesocket(ClientSocket);
-				WSACleanup();
-				return;
-			}
-			printf("Bytes sent: %d\n", iSendResult);
-			bool movementFinished = false;
-			while (!movementFinished)
+		if (iResult > 0) { //If a message has been received
+			if (strcmp(recvbuf, "True") == 0) //If the message is True
 			{
-				iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-				if (recvbuf[0] == 'F')
-				{
-					cout << "Movement is finished, program can now resume";
-					movementFinished = true;
-				}
-				else {
-					Sleep(1000);
-				}
+				cout << "Message received was True";
+				return 1;
+			}
+			else
+			{
+				cout << "Message received was not True";
+				return -1;
 			}
 		}
 		else if (iResult == 0)
@@ -323,16 +520,238 @@ void listenSendTCP()
 			printf("recv failed with error: %d\n", WSAGetLastError());
 			closesocket(ClientSocket);
 			WSACleanup();
-			return;
+			return -1;
 		}
 	}
-
 }
 
+//Function that sends commands to the UR5 robot via the TCP connection in order to move to a preset position
+int moveRobot(int position)
+{
+	float x, y, z, rx, ry, rz;
+	x = positionCoordinates[position][0];
+	y = positionCoordinates[position][1];
+	z = positionCoordinates[position][2];
+	rx = positionCoordinates[position][3];
+	ry = positionCoordinates[position][4];
+	rz = positionCoordinates[position][5];
+	if (sendCoordinatesTCP(x, y, z, rx, ry, rz))
+	{
+		cout << "SUCCESS: Robot moved to preset position " << position << endl;
+		return 1;
+	}
+	else
+	{
+		cout << "FAILED: Robot moved to preset position " << position << endl;
+		return -1;
+	}
+}
+
+//Function that sends commands to the UR5 robot via the TCP connection in order to move to a position on the rack
+int moveRobot(int position, sample &sampleTarget)
+{
+	Point rackPos = sampleTarget.returnRackPos();
+	float x, y, z, rx, ry, rz;
+	x = positionCoordinates[position][0]+(ADJ_RACK_X*rackPos.x);
+	y = positionCoordinates[position][1];
+	z = positionCoordinates[position][2]+(ADJ_RACK_Z*rackPos.y);
+	rx = positionCoordinates[position][3];
+	ry = positionCoordinates[position][4];
+	rz = positionCoordinates[position][5];
+	if (sendCoordinatesTCP(x, y, z, rx, ry, rz))
+	{
+		cout << "SUCCESS: Robot moved to rack point " << position << "at rack position " << rackPos << endl;
+		return 1;
+	}
+	else
+	{
+		cout << "FAILED: Robot moved to rack point " << position << "at rack position " << rackPos << endl;
+		return -1;
+	}
+}
+
+//Function that sends commands to the UR5 robot via the TCP connection in order to move to a position on the I/O rack
+int moveRobot(int position, int ioCapacity)
+{
+	
+	float x, y, z, rx, ry, rz;
+	x = positionCoordinates[position][0];
+	y = positionCoordinates[position][1];
+	z = positionCoordinates[position][2] + (ADJ_IO_Z*ioCapacity);
+	rx = positionCoordinates[position][3];
+	ry = positionCoordinates[position][4];
+	rz = positionCoordinates[position][5];
+	if (sendCoordinatesTCP(x, y, z, rx, ry, rz))
+	{
+		cout << "SUCCESS: Robot moved to I/O rack position " << ioCapacity << endl;
+		return 1;
+	}
+	else
+	{
+		cout << "FAILED: Robot moved to I/O rack position " << ioCapacity << endl;
+		return -1;
+	}
+}
+
+//Function that reads the curr frame from the video and stores it into a global variable
+int runCamera(VideoCapture cap)
+{
+	Mat frame;
+	cap >> frame;
+	if (frame.empty()) return -1;
+	return 1;
+}
+
+//Function that takes the current frame and attempts to read the QR code, returns pointer to sample
+sample* readQR()
+{
+	auto input_time = chrono::high_resolution_clock::now();
+	sample* samplePointer;
+	QRCodeDetector qrDecoder = QRCodeDetector::QRCodeDetector();
+	Mat bbox, rectifiedImage;
+	std::string data = qrDecoder.detectAndDecode(currFrame, bbox, rectifiedImage);
+	if (data.length() > 0)
+	{
+		cout << "Decoded Data : " << data << endl;
+	}
+	else
+	{
+		cout << "QR could not be read...";
+		samplePointer = NULL;
+		return samplePointer;
+	}
+	for (int i = 0; i < sampleVector.size(); i++)
+	{
+		if (sampleVector[i].returnQrCode() == stoi(data))
+		{
+			samplePointer = &sampleVector[i];
+			samplePointer->inputTime = input_time;
+			return samplePointer;
+		}
+	}
+}
+
+//Function that takes pictures of sample and runs evaluating methods against comparator
+void visInspection(sample &sampleTarget) 
+{
+	if (arduinoSP.isConnected())
+	{
+		int commCase = 0;
+		Mat imageWhite, imageUV;
+		auto start_time = chrono::high_resolution_clock::now();
+		while (1)
+		{
+			auto current_time = chrono::high_resolution_clock::now();
+			int secondsPassed = chrono::duration_cast<chrono::seconds>(current_time - start_time).count();
+			switch (commCase)
+			{
+			case 0:
+				if (secondsPassed < 2)
+				{
+					arduinoSP.writeSerialPort("W", strlen("W")); //Turn on white light
+					commCase = 1;
+					break;
+				}
+			case 1:
+				if (secondsPassed >= 6)
+				{
+					currFrame.copyTo(imageWhite);
+					arduinoSP.writeSerialPort("S", strlen("S")); //Turn off white light
+					arduinoSP.writeSerialPort("U", strlen("U")); //Turn on UV light
+					commCase = 2;
+					break;
+				}
+			case 2:
+				if (secondsPassed >= 10)
+				{
+					currFrame.copyTo(imageUV);
+					arduinoSP.writeSerialPort("S", strlen("S")); //Turn off UV light
+					commCase = 3;
+					break;
+				}
+			}
+			if (commCase == 3)
+				break;
+		}
+		sampleTarget.evalSample(comparator, imageWhite, imageUV);
+		return;
+	}
+}
+
+//Function that performs the task that it is given
+int performTask(task taskCurr)
+{
+	sample *sampleCurr = taskCurr.sampleTarget;
+	switch (taskCurr.action) {
+		//Input task
+		case task_INPUT: 
+			cout << "Starting input task..." << endl;
+			moveRobot(pos_IO_LOW_APP,ioCapacity);
+			moveRobot(pos_IO_LOW_IN, ioCapacity);
+			moveRobot(pos_IO_HIGH_IN, ioCapacity);
+			moveRobot(pos_IO_HIGH_APP, ioCapacity);
+			ioCapacity--;
+			moveRobot(pos_VIS_APP);
+			moveRobot(pos_VIS_IN);
+			sampleCurr = readQR();
+			visInspection(*sampleCurr);
+			moveRobot(pos_VIS_APP);
+			moveRobot(pos_RACK_HIGH_APP, *sampleCurr);
+			moveRobot(pos_RACK_HIGH_IN, *sampleCurr);
+			moveRobot(pos_RACK_LOW_IN, *sampleCurr);
+			moveRobot(pos_RACK_LOW_APP, *sampleCurr);
+			cout << "Finished input task..." << endl;
+			return 1;
+		//Visual inspection
+		case task_EVALUATE:
+			cout << "Starting evaluating task..." << endl;
+			moveRobot(pos_RACK_LOW_APP, *sampleCurr);
+			moveRobot(pos_RACK_LOW_IN, *sampleCurr);
+			moveRobot(pos_RACK_HIGH_IN, *sampleCurr);
+			moveRobot(pos_RACK_HIGH_APP, *sampleCurr);
+			moveRobot(pos_VIS_APP);
+			moveRobot(pos_VIS_IN);
+			visInspection(*sampleCurr);
+			moveRobot(pos_VIS_APP);
+			moveRobot(pos_RACK_HIGH_APP, *sampleCurr);
+			moveRobot(pos_RACK_HIGH_IN, *sampleCurr);
+			moveRobot(pos_RACK_LOW_IN, *sampleCurr);
+			moveRobot(pos_RACK_LOW_APP, *sampleCurr);
+			cout << "Finished evaluating task..." << endl;
+			return 1;
+		//Output task
+		case task_OUTPUT:
+			cout << "Starting output task..." << endl;
+			moveRobot(pos_RACK_LOW_APP, *sampleCurr);
+			moveRobot(pos_RACK_LOW_IN, *sampleCurr);
+			moveRobot(pos_RACK_HIGH_IN, *sampleCurr);
+			moveRobot(pos_RACK_HIGH_APP, *sampleCurr);
+			moveRobot(pos_IO_HIGH_APP, ioCapacity); 
+			moveRobot(pos_IO_HIGH_IN, ioCapacity);
+			moveRobot(pos_IO_LOW_IN, ioCapacity);
+			moveRobot(pos_IO_LOW_APP, ioCapacity);
+			cout << "Finished output task..." << endl;
+			return 1;
+	}
+	return -1;
+}
+ 
 int main(int argc, char** argv)
 {
-	initializeTCP();
-	listenSendTCP();
-	return 0;
+	initGlobalWellCoord();
+	initGlobalPosCoord();
+	initComparator();
+	//initCamera();
+	//initTCP();
+
+	Mat testWhite = imread("comparatorPicS1W.jpg");
+	GaussianBlur(testWhite, testWhite, Size(7, 7), 0, 0);
+
+	Mat testUV = imread("comparatorPicS1U.jpg");
+	GaussianBlur(testUV, testUV, Size(5, 5), 0, 0);
+
+	vector<int> testtimes;
+	sample testSample(Point(0,0),111,testtimes);
+	testSample.evalSample(comparator, testWhite, testUV);
 }
  

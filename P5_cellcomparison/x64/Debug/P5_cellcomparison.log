@@ -1,5 +1,23 @@
 ﻿  Source.cpp
-c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(298): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
-c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(133): warning C4715: 'well::evalWellColi': not all control paths return a value
-c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(155): warning C4715: 'well::evalWellEColi': not all control paths return a value
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(358): warning C4101: 'rx': unreferenced local variable
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(358): warning C4101: 'z': unreferenced local variable
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(358): warning C4101: 'ry': unreferenced local variable
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(358): warning C4101: 'y': unreferenced local variable
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(358): warning C4101: 'x': unreferenced local variable
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(358): warning C4101: 'rz': unreferenced local variable
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(495): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(555): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(557): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(580): warning C4244: '=': conversion from 'double' to 'float', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(645): warning C4244: 'initializing': conversion from '_Rep' to 'int', possible loss of data
+          with
+          [
+              _Rep=__int64
+          ]
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(651): warning C4267: 'argument': conversion from 'size_t' to 'unsigned int', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(659): warning C4267: 'argument': conversion from 'size_t' to 'unsigned int', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(660): warning C4267: 'argument': conversion from 'size_t' to 'unsigned int', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(668): warning C4267: 'argument': conversion from 'size_t' to 'unsigned int', possible loss of data
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(526): warning C4715: 'sendCoordinatesTCP': not all control paths return a value
+c:\users\rrung\source\repos\p5_cellcomparison\p5_cellcomparison\source.cpp(632): warning C4715: 'readQR': not all control paths return a value
   P5_cellcomparison.vcxproj -> C:\Users\rrung\source\repos\P5_cellcomparison\x64\Debug\P5_cellcomparison.exe
