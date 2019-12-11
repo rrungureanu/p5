@@ -309,7 +309,7 @@ void sample::evalSample(sample comparator, Mat imageWhite, Mat imageUV)
 	this->readSample(whitecopy, imageUV);
 	evaluation currEval;
 	auto current_time = chrono::high_resolution_clock::now();
-	currEval.time = chrono::duration_cast<chrono::minutes>(current_time - comparator.inputTime).count();
+	currEval.time = chrono::duration_cast<chrono::minutes>(current_time - this->inputTime).count();
 	for (int i = 0; i < WELLSNR; i++)
 	{
 		well comparatorWell = comparator.returnWell(i);
@@ -333,8 +333,8 @@ void sample::evalSample(sample comparator, Mat imageWhite, Mat imageUV)
 		else
 			rectangle(imageUV, Point(wellCoordinates[i][0].x - 5, wellCoordinates[i][0].y - 5), Point(wellCoordinates[i][1].x + 5, wellCoordinates[i][1].y + 5), Scalar(0, 255, 0),2);
 	}
-	currEval.picFilenameWhite ="C:\\Users\\rrung\\source\\repos\\P5_cellcomparison\\P5_cellcomparison\\"+comparator.returnQrCode() + "_" + to_string(currEval.time) + "min_White.jpg";
-	currEval.picFilenameUV ="C:\\Users\\rrung\\source\\repos\\P5_cellcomparison\\P5_cellcomparison\\" + comparator.returnQrCode() + "_" + to_string(currEval.time) + "min_UV.jpg";
+	currEval.picFilenameWhite ="C:\\Users\\rrung\\source\\repos\\P5_cellcomparison\\P5_cellcomparison\\" + this->returnQrCode() + "_" + to_string(currEval.time) + "min_White.jpg";
+	currEval.picFilenameUV ="C:\\Users\\rrung\\source\\repos\\P5_cellcomparison\\P5_cellcomparison\\" + this->returnQrCode() + "_" + to_string(currEval.time) + "min_UV.jpg";
 	//imshow(currEval.picFilenameWhite, imageWhite);
 	//imshow(currEval.picFilenameUV, imageUV);
 	//waitKey(0);
@@ -807,16 +807,16 @@ int main(int argc, char** argv)
 	sampleVector.push_back(testSample2);
 	task testTask1;
 	testTask1.action = task_INPUT;
-	testTask1.sampleTarget = &testSample1;
+	testTask1.sampleTarget = &testSample2;
 	task testTask2; 
 	testTask2.action = task_OUTPUT;
 	testTask2.sampleTarget = &testSample1;
 	task testTask3;
 	testTask3.action = task_EVALUATE;
 	testTask3.sampleTarget = &testSample1;
-	ioCapacity = 0;
+	ioCapacity = 1;
 	//readQR(); 
 	//visInspection(testSample);
-		performTask(testTask2);
+		performTask(testTask1);
 }
  
