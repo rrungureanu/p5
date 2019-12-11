@@ -1,5 +1,5 @@
 #include "SerialPort.h"
-
+#include <iostream>
 
 
 SerialPort::SerialPort(const char *portName)
@@ -167,11 +167,9 @@ bool SerialPort::writeSerialPort(const char *buffer, unsigned int buf_size)
 }
 
 
-
 bool SerialPort::isConnected()
 
 {
-
 	return this->connected;
 
 }
